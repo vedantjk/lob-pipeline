@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+*.o
+*.obj
+*.out
+a.out
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# Market-data sample files — multi-GB, NEVER commit
+data/
+*.gz
+*.bin
+*.NASDAQ_ITCH50
+*.itch
+
+# Measurement output (large traces / CSVs)
+*.csv
+*.trace
+results/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+!data/.gitkeep
