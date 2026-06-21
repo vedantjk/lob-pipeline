@@ -20,6 +20,9 @@ data/
 *.trace
 results/
 
+# Planning / design specs — local-only interview artifacts, NEVER commit
+docs/specs/
+
 # Editor / OS
 .idea/
 .vscode/
