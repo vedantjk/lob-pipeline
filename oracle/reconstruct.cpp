@@ -154,6 +154,8 @@ private:
     uint64_t zero_share_orders_ = 0;   // adds/replaces resting zero shares
     uint64_t crossed_book_count_ = 0;
     uint64_t aapl_crossed_count_ = 0;
+    uint64_t aapl_peak_live_ = 0;
+    uint64_t aapl_live_ = 0;
     uint64_t crossed_examples_logged_ = 0;
     char last_s_ = 0;
 };
@@ -214,6 +216,12 @@ void Oracle::handle_add(uint16_t locate, uint64_t timestamp, uint64_t msg_index)
     order_ref_[order_ref_number] = Order{locate, side, raw_price, shares};
     book_ref_[locate].add(side, raw_price, shares);
 
+    if (locate == AAPL)
+    {
+        aapl_live_++;
+        aapl_peak_live_ = std::max(aapl_peak_live_, aapl_live_);
+    }
+
     if (shares == 0) zero_share_orders_++;
 
     check_crossed_book(locate, timestamp, msg_index);
@@ -240,7 +248,14 @@ void Oracle::handle_execute(uint16_t locate, uint64_t timestamp, uint64_t msg_in
         // remove() also guards the missing-level / over-draw cases; only the
         // qty mismatch is counted here, mirroring the resting-order check.
         book_ref_[stock_locate].remove(side, raw_price, executed);
-        if (shares == 0) order_ref_.erase(order_ref_number);
+        if (shares == 0)
+        {
+            order_ref_.erase(order_ref_number);
+            if (locate == AAPL)
+            {
+                aapl_live_--;
+            }
+        }
     }
 
     check_crossed_book(locate, timestamp, msg_index);
@@ -259,6 +274,7 @@ void Oracle::handle_delete(uint16_t locate, uint64_t timestamp, uint64_t msg_ind
     order_ref_.erase(it);
 
     check_crossed_book(locate, timestamp, msg_index);
+    if (locate == AAPL) aapl_live_--;
     if (locate == AAPL) emit_tob(msg_index, timestamp);
 }
 
@@ -351,7 +367,7 @@ void Oracle::print_report(std::ostream& out) const
 
     out << "Crossed book count (all symbols): " << crossed_book_count_ << "\n";
     out << "Crossed book count (AAPL): " << aapl_crossed_count_ << "\n";
-
+    out << "Peak AAPL count: " << aapl_peak_live_ << "\n";
     if (wrong_ref_count_)      out << "Wrong order referenced count: " << wrong_ref_count_ << "\n";
     if (timestamp_violations_) out << "Timestamp violations: " << timestamp_violations_ << "\n";
     if (over_cancel_count_)    out << "Over cancel count: " << over_cancel_count_ << "\n";
