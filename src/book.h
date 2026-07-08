@@ -203,4 +203,14 @@ public:
             add_order(new_ref, side, new_price, new_shares);
         }
     }
+
+    struct ToB { uint32_t bid_px = 0, bid_qty = 0, ask_px = 0, ask_qty = 0; };
+
+    ToB top_of_book() const
+    {
+        ToB t;
+        if (!bids_.empty()) { const Level& l = levels_[bids_.rbegin()->second]; t.bid_px = l.price; t.bid_qty = l.quantity; }
+        if (!asks_.empty()) { const Level& l = levels_[asks_.begin()->second]; t.ask_px = l.price; t.ask_qty = l.quantity; }
+        return t;
+    }
 };
