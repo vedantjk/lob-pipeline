@@ -1,9 +1,26 @@
-// tsc.h — rdtsc/lfence timer wrapper + cycles->ns calibration (Rung 1, spec §8)
-//
-// WEEK 2 — leave empty during correctness bring-up. Notes for later:
-//   - rdtsc on the isolated core; invariant TSC, calibrate cycles->ns once
-//     (>=100ms spin vs CLOCK_MONOTONIC).
-//   - lfence to serialize; on AMD verify MSR C001_1029[1], else use rdtscp.
-//   - No clock_gettime on the hot path; warm up the timer first.
-
 #pragma once
+#include <cstdint>
+#include <x86intrin.h>
+
+inline uint64_t now_cycles()
+{
+    unsigned aux;
+    const uint64_t t = __rdtscp(&aux);
+    _mm_lfence();
+    return t;
+}
+
+inline uint32_t current_core()
+{
+    unsigned aux;
+    __rdtscp(&aux);
+    return aux & 0xFFF;
+}
+
+inline void do_not_optimize(void* p)
+{
+    asm volatile("" : : "g"(p) : "memory");
+}
+
+double calibrate_ns_per_cycle();
+uint64_t timer_overhead_cycles();

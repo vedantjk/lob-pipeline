@@ -123,6 +123,8 @@ class Book
 
 public:
 
+    Book() { id_to_order_.reserve(pool_cap); }
+
     void add_order(uint64_t order_id, uint8_t side, uint32_t price, uint32_t shares)
     {
         // make order struct

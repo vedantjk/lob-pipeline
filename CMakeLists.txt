@@ -12,3 +12,8 @@ add_executable(rung1
         src/tsc.cpp)
 target_include_directories(rung1 PRIVATE third_party)
 target_compile_options(rung1 PRIVATE -O2 -march=native)
+
+add_executable(rung1_bench src/rung1_replay.cpp src/tsc.cpp)
+target_compile_definitions(rung1_bench PRIVATE MEASURE NDEBUG)
+target_include_directories(rung1_bench PRIVATE third_party)
+target_compile_options(rung1_bench PRIVATE -O2 -march=native)
