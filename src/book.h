@@ -55,6 +55,15 @@ public:
         free_list[next_free_index] = index;
     }
 
+    // Drop all allocations at once. The free_list must be restored to the
+    // identity permutation (allocate/deallocate churn leaves stale entries in
+    // the allocated region), so this is O(Capacity) — a cold-path reset only.
+    void reset()
+    {
+        for (uint32_t i = 0; i < Capacity; i++) free_list[i] = i;
+        next_free_index = 0;
+    }
+
     // Turn a pool index back into the order it names.
     T& operator[](uint32_t index) { return memory[index]; }
     const T& operator[](uint32_t index) const { return memory[index]; }
@@ -204,6 +213,18 @@ public:
             unlink_and_free(it);
             add_order(new_ref, side, new_price, new_shares);
         }
+    }
+
+    // Abandon all state — used only after a detected sequence gap, where the
+    // book is unrecoverably inconsistent (a dropped message could have left
+    // dangling order/level references). Not on any correctness path (gaps=0).
+    void reset()
+    {
+        bids_.clear();
+        asks_.clear();
+        id_to_order_.clear();
+        orders_.reset();
+        levels_.reset();
     }
 
     struct ToB { uint32_t bid_px = 0, bid_qty = 0, ask_px = 0, ask_qty = 0; };
