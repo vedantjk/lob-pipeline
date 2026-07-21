@@ -184,39 +184,56 @@ attack: the copy path itself (kernel-bypass), which is out of scope here (§6).
 
 ---
 
-## 5. Stress chart — p99.9 vs offered load *(centerpiece)*
+## 5. Stress chart — queueing latency vs offered load *(centerpiece)*
 
-> **Status: pending sweep.** The prose and axes are fixed; the data points are the
-> next measurement. Methodology below so the chart is reproducible, not decorative.
+The four-way table (§4) is a single operating point: a saturated channel. The
+question that a stress chart answers is what happens to **tail latency as offered
+load climbs**. To measure that honestly you have to capture the one thing the
+per-stage stamps in §2–4 cannot: **queueing delay** — how long a packet waits in
+the socket buffer before it is processed. Processing cost (parse 20 ns, book 70 ns)
+is load-independent; queueing is not. So this section adds a kernel RX timestamp
+(`SO_TIMESTAMPNS`) and reports **end-to-end arrival→signal latency** per AAPL
+message across a load sweep (sender's rate knob, `sendmmsg`, up to ~28 M msg/s —
+its ceiling).
 
-The four-way table (§4) is a single operating point: a saturated channel. It hides
-the question that actually separates these paths — **what happens as offered load
-climbs toward saturation.** That is what this chart shows.
+![Queueing p99.9 vs offered load](assets/stress_chart.png)
 
-**Sweep.** Offered load via the sender's rate knob: 100 K, 500 K, 1 M, 2 M, 5 M
-msg/s (and higher until the sender or a given path saturates). For each
-(path × load), report **end-to-end** wire-to-signal latency per AAPL message
-(`recv + parse + book + signal`), p50 / p99 / p99.9.
+**Finding 1 — it's flat. The pipeline never saturates.** Across the entire
+achievable range (1 M → 28 M msg/s) queueing p99.9 stays bounded (~20–45 µs) with
+**zero drops on every path**. There is no knee, and that absence is the result: the
+single-threaded receive pipeline sustains ~28 M msg/s, and one loopback sender
+cannot offer more, so the receiver is never driven past capacity. The three I/O
+paths (blocking, epoll, busy-poll) cluster within measurement noise — the same
+conclusion as §4, now across load rather than at one point: **the I/O strategy does
+not move latency here.**
 
-**The chart.** x = offered load (log), y = **p99.9 end-to-end** (log), one line per
-I/O path. The story is the **knee**: where each path's tail latency turns up as
-queueing sets in. The prediction from §4 —
-- blocking / epoll / io_uring track together at low load (all park per batch), tails
-  rise as batching stops amortizing the syscall;
-- busy-poll and SQPOLL stay flat further (no park, no wakeup) — the advantage that
-  `spins = 0` hid at full saturation should appear *here*, in the mid-load regime;
-- the knee location, not the low-load value, is the differentiator.
+**Finding 2 — consumer weight, not offered load, sets the floor.** The dashed line
+is the same blocking path with a **heavier per-message consumer** (the fully
+`rdtscp`-instrumented pipeline). It sits ~4× higher (~140–160 µs p99.9) and is
+*also* flat. Load slides the curve nowhere; making each message cost more slides the
+whole floor up. That is the real lever — and it points, again, at per-message work
+(the copy path, the book), not at the syscall.
 
-**Measurement note (honest).** The instrumented build cannot sustain the highest
-loads (5 `rdtscp`/msg), and past a path's saturation the socket buffer fills →
-queueing latency dominates → eventually drops. That knee **is** the signal; the
-sweep must (a) let the bench build tolerate a gap without corrupting the book, so
-the saturation regime is measurable rather than a crash, and (b) record the offered
-load at which each path first drops. A path that "wins" only by dropping is noted,
-not credited.
+**Why there is no knee, stated plainly.** A saturation knee requires offered load
+to exceed receive capacity. On loopback I can't get there: I upgraded the sender to
+`sendmmsg` (3× faster, ~28 M msg/s) and I lowered receive capacity with a heavier
+consumer, and the channel still would not saturate — every run finished with
+`gaps = 0`. Producing a genuine knee would need a faster load generator (multiple
+senders, or a kernel-bypass flood) or a real NIC, where per-packet cost is higher
+and interrupt/wakeup latency is real. This is the same honesty as the wire-time
+caveat (§1): the loopback harness cannot manufacture a bottleneck it doesn't have,
+and I would rather report the flat truth than dress up a knee that isn't there.
 
-*(Chart to be generated from `results/rung*_latency.csv` across the load sweep;
-plotted offline.)*
+**Saturation / throughput (the Fig 5b question).** Because nothing drops, the
+throughput cliff is not in reach: all four paths sustain **≥ 28 M msg/s with zero
+loss**, and the ceiling is the *sender's*, not any receiver's. The single-threaded
+pipeline is not the throughput bottleneck on loopback — a result worth stating
+because it means the decoupling optimizations (SPSC queue, strategy thread) that a
+faster feed would justify have no measured reason to exist yet (§7).
+
+*Reproduce:* `SO_TIMESTAMPNS` probe builds `rung{2,3,4a}_qbench` (light) and
+`rung{2,3,4a}_qm` (heavy); sweep via `--rate/--duration`; data in
+`results/stress_sweep.csv` + `results/stress_knee.csv`; plotted offline.
 
 ---
 

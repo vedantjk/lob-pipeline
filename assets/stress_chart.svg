@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="500" viewBox="0 0 860 500" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+<rect width="860" height="500" fill="#fcfcfb"/>
+<text x="74" y="30" font-size="17" font-weight="700" fill="#0b0b0b">Queueing latency (p99.9) vs offered load</text>
+<text x="74" y="49" font-size="12.5" fill="#52514e">arrival→signal, MoldUDP64 loopback · flat across load — the pipeline never saturates</text>
+<line x1="74" y1="428.0" x2="650" y2="428.0" stroke="#e6e5e2" stroke-width="1"/>
+<text x="66" y="432.0" font-size="11.5" fill="#52514e" text-anchor="end">10 µs</text>
+<line x1="74" y1="354.2" x2="650" y2="354.2" stroke="#e6e5e2" stroke-width="1"/>
+<text x="66" y="358.2" font-size="11.5" fill="#52514e" text-anchor="end">20 µs</text>
+<line x1="74" y1="256.7" x2="650" y2="256.7" stroke="#e6e5e2" stroke-width="1"/>
+<text x="66" y="260.7" font-size="11.5" fill="#52514e" text-anchor="end">50 µs</text>
+<line x1="74" y1="182.9" x2="650" y2="182.9" stroke="#e6e5e2" stroke-width="1"/>
+<text x="66" y="186.9" font-size="11.5" fill="#52514e" text-anchor="end">100 µs</text>
+<line x1="74" y1="109.2" x2="650" y2="109.2" stroke="#e6e5e2" stroke-width="1"/>
+<text x="66" y="113.2" font-size="11.5" fill="#52514e" text-anchor="end">200 µs</text>
+<line x1="74" y1="66.0" x2="650" y2="66.0" stroke="#e6e5e2" stroke-width="1"/>
+<text x="66" y="70.0" font-size="11.5" fill="#52514e" text-anchor="end">300 µs</text>
+<line x1="74.0" y1="428" x2="74.0" y2="433" stroke="#52514e" stroke-width="1"/>
+<text x="74.0" y="448.0" font-size="11.5" fill="#52514e" text-anchor="middle">1M</text>
+<line x1="191.4" y1="428" x2="191.4" y2="433" stroke="#52514e" stroke-width="1"/>
+<text x="191.4" y="448.0" font-size="11.5" fill="#52514e" text-anchor="middle">2M</text>
+<line x1="346.6" y1="428" x2="346.6" y2="433" stroke="#52514e" stroke-width="1"/>
+<text x="346.6" y="448.0" font-size="11.5" fill="#52514e" text-anchor="middle">5M</text>
+<line x1="463.9" y1="428" x2="463.9" y2="433" stroke="#52514e" stroke-width="1"/>
+<text x="463.9" y="448.0" font-size="11.5" fill="#52514e" text-anchor="middle">10M</text>
+<line x1="581.3" y1="428" x2="581.3" y2="433" stroke="#52514e" stroke-width="1"/>
+<text x="581.3" y="448.0" font-size="11.5" fill="#52514e" text-anchor="middle">20M</text>
+<line x1="650.0" y1="428" x2="650.0" y2="433" stroke="#52514e" stroke-width="1"/>
+<text x="650.0" y="448.0" font-size="11.5" fill="#52514e" text-anchor="middle">30M</text>
+<text x="362.0" y="486" font-size="12.5" fill="#0b0b0b" text-anchor="middle">offered load (msg/s, log)</text>
+<polyline points="74.0,92.5 191.4,144.8 260.1,145.8 308.8,142.3 346.6,140.3 377.4,134.5 426.2,136.8 463.9,132.3" fill="none" stroke="#52514e" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="74.0" cy="92.5" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="191.4" cy="144.8" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="260.1" cy="145.8" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="308.8" cy="142.3" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="346.6" cy="140.3" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="377.4" cy="134.5" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="426.2" cy="136.8" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="463.9" cy="132.3" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<polyline points="74.0,352.4 191.4,277.7 346.6,271.2 463.9,286.4 581.3,309.7 638.3,336.0" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="74.0" cy="352.4" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="191.4" cy="277.7" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="346.6" cy="271.2" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="463.9" cy="286.4" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="581.3" cy="309.7" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="638.3" cy="336.0" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<polyline points="74.0,362.0 191.4,319.9 346.6,268.2 463.9,260.7 581.3,315.2 638.3,313.6" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="74.0" cy="362.0" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="191.4" cy="319.9" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="346.6" cy="268.2" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="463.9" cy="260.7" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="581.3" cy="315.2" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="638.3" cy="313.6" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<polyline points="74.0,393.5 191.4,280.1 346.6,269.0 463.9,283.9 581.3,304.4 638.3,337.6" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="74.0" cy="393.5" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="191.4" cy="280.1" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="346.6" cy="269.0" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="463.9" cy="283.9" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="581.3" cy="304.4" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<circle cx="638.3" cy="337.6" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<line x1="674" y1="74" x2="700" y2="74" stroke="#2a78d6" stroke-width="2.5"/>
+<circle cx="687" cy="74" r="3.2" fill="#2a78d6" stroke="#fcfcfb" stroke-width="1.5"/>
+<text x="708" y="78" font-size="12" fill="#0b0b0b">blocking (light)</text>
+<line x1="674" y1="100" x2="700" y2="100" stroke="#eb6834" stroke-width="2.5"/>
+<circle cx="687" cy="100" r="3.2" fill="#eb6834" stroke="#fcfcfb" stroke-width="1.5"/>
+<text x="708" y="104" font-size="12" fill="#0b0b0b">epoll (light)</text>
+<line x1="674" y1="126" x2="700" y2="126" stroke="#1baf7a" stroke-width="2.5"/>
+<circle cx="687" cy="126" r="3.2" fill="#1baf7a" stroke="#fcfcfb" stroke-width="1.5"/>
+<text x="708" y="130" font-size="12" fill="#0b0b0b">busy-poll (light)</text>
+<line x1="674" y1="152" x2="700" y2="152" stroke="#52514e" stroke-width="2.5" stroke-dasharray="5 4"/>
+<circle cx="687" cy="152" r="3.2" fill="#52514e" stroke="#fcfcfb" stroke-width="1.5"/>
+<text x="708" y="156" font-size="12" fill="#0b0b0b">blocking, heavy consumer</text>
+<text x="674" y="192" font-size="11" fill="#52514e">3 light paths cluster:</text>
+<text x="674" y="208" font-size="11" fill="#52514e">I/O path is within noise.</text>
+<text x="674" y="230" font-size="11" fill="#52514e">Heavier consumer lifts</text>
+<text x="674" y="246" font-size="11" fill="#52514e">the floor — not load.</text>
+</svg>
