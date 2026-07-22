@@ -264,8 +264,8 @@ path and the single-thread inline pipeline):
   above it in the ladder only reshapes syscall/scheduler cost.
 - **Lock-free producer→consumer handoff** — an SPSC ring from the receive thread to
   a strategy thread, decoupling parse/book from signal so a slow consumer can't
-  backpressure receive. Deferred until a rung had a measured reason; a real NIC would
-  provide it.
+  backpressure receive. **Built and measured in Phase 2 (§8)** as a standalone
+  concurrency study; wiring it into the live path still waits on a real NIC.
 - **Hardware timestamping** — NIC RX timestamps to measure true wire-to-software
   latency (impossible on loopback), closing the honesty gap this study is explicit about.
 - **busy-poll with NAPI tuning** — `SO_BUSY_POLL` budget + `gro_flush_timeout` /
@@ -274,6 +274,131 @@ path and the single-thread inline pipeline):
 - **Parser microarchitecture** — parsing is the user-space bottleneck under load
   (§3 perf); SIMD field extraction or a computed-goto dispatch are the levers if the
   copy path is ever removed and parse becomes the wall.
+
+## 8. Phase 2 — lock-free concurrency (SPSC ring + seqlock)
+
+*(rough section — numbers are real and reproducible; prose is a draft)*
+
+The single-threaded pipeline (§1–7) proves latency discipline. This phase proves
+the other HFT dialect: low-latency handoff between a few pinned, busy-spinning
+threads, where the whole game is the p99.9 of one message crossing a
+cache-coherence boundary. Two primitives — a bounded SPSC ring
+(`src/spsc_ring.hpp`) and a single-writer/multi-reader seqlock (`src/seqlock.hpp`),
+both header-only and reusing the Rung-1 rdtsc/percentile harness verbatim.
+
+**Test box.** AMD Ryzen 7 9800X3D — *single socket, single NUMA node, single CCD*
+(8c/16t). `isolcpus=6,7,14,15`; HT siblings are (6,14) and (7,15). This constrains
+the topology sweep honestly: there is **no cross-CCX and no cross-NUMA placement on
+this part**, so I can only measure two points — HT-sibling and distinct physical
+core. The cross-NUMA row is hardware I don't have, not a case I skipped.
+
+### 8.1 SPSC ring — cross-core handoff by topology
+
+Producer stamps `rdtsc` into a slot, pushes, then waits until the consumer has
+popped it before sending the next — **exactly one item in flight**. That keeps the
+ring near-empty so the delta is the *true* handoff (coherence transfer of the slot
++ the `write_` index to the consumer's core), not residence time in a buffered
+ring. (First cut got this wrong — a free-running producer filled the 16 K-slot ring
+and I measured ~600 µs of queueing; the lockstep rewrite is the fix.) TSC is
+invariant + synced across cores on one socket, so a cross-core cycle delta is
+meaningful. Consumer hot-spins → we measure handoff, never a scheduler wakeup.
+2 M samples each:
+
+| placement            | p50 | p99 | p99.9 | streaming throughput |
+|----------------------|-----|-----|-------|----------------------|
+| HT-sibling (6,14)    | 40 ns | 60 ns | 70 ns | ~700 M msg/s |
+| distinct core (6,7)  | 70 ns | 80 ns | 100 ns | ~160 M msg/s |
+
+HT siblings share L1/L2, so the payload never leaves the physical core — ~40 ns.
+Two distinct cores pay the on-CCD coherence hop — ~30 ns more per handoff. (The
+higher HT-sibling *throughput* is misleading for real use: siblings also contend
+for the core's execution units, which is exactly why you'd **not** co-schedule a
+hot producer/consumer pair there in production. Latency favors it; that's the trap.)
+
+**Memory ordering is the point.** Publish is `write_.store(release)`; observe is
+`write_.load(acquire)`. On x86-TSO those are plain `mov`s — a compiler fence only,
+zero hardware cost. `seq_cst` would force a store-load barrier (`mfence`/`lock`) on
+the producer's store: a real, measurable tax for ordering we don't need. Each side
+also caches the opposite index and only re-reads the shared line when the ring
+*appears* full/empty (the Disruptor/Vyukov trick), keeping a cross-core read off
+the common path. No ABA here — SPSC has monotonic single-writer indices and no node
+reclamation, so the problem doesn't arise (unlike a Treiber stack or MPSC).
+
+**Correctness.** `rung6_spsc_test` under ThreadSanitizer: 20 M items, exact FIFO,
+both ring-full (193 K hits) and ring-empty (14 K hits) boundaries exercised —
+**TSan-clean** (the ring uses only acquire/release loads/stores, which TSan fully
+models).
+
+### 8.2 False sharing — before / after
+
+Same distinct-core placement, `pad=64` (each index its own line) vs `pad=1`
+(`write_` and `read_` on one line, so the two cores ping-pong it every op):
+
+| build  | handoff p50 | cache-misses | L1-dcache miss | `perf c2c` Local HITM |
+|--------|-------------|--------------|----------------|-----------------------|
+| padded | 70 ns  | 19.2 M | 24.0 M | 1 / 909 loads |
+| nopad  | 110 ns | 26.3 M | 33.0 M | 20 / 992 loads |
+
++57 % p50 latency, +37 % cache-misses. `perf c2c` (the tool built for exactly this)
+fingers a single cache line carrying **80 % of all HITM traffic** — 130 loads +
+72 stores hammered from both cores. Padding removes it: HITM drops 20 → 1.
+
+### 8.3 Seqlock — top-of-book publisher
+
+Single writer, wait-free readers; the writer never blocks on a reader (a reader
+must never stall the book-update hot path). Mechanism: writer bumps `seq` to odd,
+writes payload, bumps to even; reader reads `seq` (even), reads payload, re-reads
+`seq` — retries if it moved or was odd.
+
+**The subtlety that is the whole point.** A naive seqlock writes the payload with
+plain stores while a reader may be reading it — a data race, i.e. UB under the C++
+memory model, even though it "works" on x86. The well-defined form (Boehm, *Can
+Seqlocks Get Along with Programming Language Memory Models?*) stores the payload as
+**relaxed-atomic words bracketed by acquire/release fences** against the sequence
+counter. That's what `seqlock.hpp` does — correct under C++11, not merely
+x86-correct.
+
+**TSan caveat, documented.** `std::atomic_thread_fence` is *not modeled* by
+ThreadSanitizer (it emits `-Wtsan` and cannot prove the fence orders anything).
+But because every shared access here is atomic (relaxed payload words, not plain
+stores), TSan reports **no data race** regardless — it simply can't *verify* the
+ordering the fence provides. The torn-read invariant below is what actually proves
+correctness.
+
+**Correctness — and a real bug the invariant caught.** The snapshot carries a
+72-byte (9-word, >1 cache line, so torn reads are genuinely reachable) payload with
+a redundant checksum; any reader observing `checksum != f(fields)` saw a tear. Under
+4 concurrent readers + a hot writer (5 M writes), it **never fires** — after fixing
+a bug the invariant surfaced: `load()`'s early-out `if (s0 & 1) continue;` sat
+inside a `do/while`, so `continue` jumped to the condition with a **stale `s1`** and
+could accept a mid-write snapshot. Moving the odd-check into the loop condition
+(`while (s0 != s1 || (s0 & 1))`, the Rigtorp form) fixes it. This is the kind of
+bug that "passes on my machine" hides and an invariant under load exposes.
+
+**Reader-retry vs writer frequency** (writer core 6, reader core 7, 2 s each; the
+writer's spin-gap knob throttles publish rate):
+
+| writer gap | writes/s | loads/s | retries/s | retry frac |
+|-----------:|---------:|--------:|----------:|-----------:|
+| 0 (wide open) | 17.0 M | 10.1 M | 18.2 M | 1.80 |
+| 50   | 15.3 M | 11.8 M | 18.2 M | 1.54 |
+| 200  | 8.8 M  | 25.1 M | 2.9 M  | 0.11 |
+| 1000 | 3.7 M  | 37.5 M | 0.16 M | 0.004 |
+| 5000 | 1.0 M  | 43.2 M | 0.07 M | 0.0015 |
+
+When the writer outruns the reader (~17 M publishes/s) the reader averages ~1.8
+retries per successful load — but it **never livelocks**: it still lands 10 M
+consistent snapshots/s. Throttle the writer and retries collapse toward zero. The
+tradeoff is explicit and bounded.
+
+### 8.4 What this leaves out
+
+MPSC (many strategy threads → one gateway) is out — SPSC + seqlock is the complete
+signal and MPSC adds reclamation concerns these two don't have. The batch-size
+latency/throughput sweep isn't cleanly isolable in this harness (the consumer
+updates `read_` per-pop regardless of batch), so I don't claim a curve for it.
+Cross-NUMA handoff is unmeasurable on this single-CCD part — the natural next data
+point on a 2-socket box.
 
 ---
 

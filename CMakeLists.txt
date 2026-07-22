@@ -95,3 +95,38 @@ add_executable(rung4a_qm src/rung4a_replay.cpp src/tsc.cpp)
 target_compile_definitions(rung4a_qm PRIVATE QTIME MEASURE NDEBUG)
 target_include_directories(rung4a_qm PRIVATE third_party)
 target_compile_options(rung4a_qm PRIVATE -O2 -march=native)
+
+# ============================================================================
+# Phase 2 — lock-free concurrency extension (Rungs 6-7)
+# ============================================================================
+
+# --- Rung 6: SPSC ring — cross-core handoff latency -------------------------
+# Padded (correct): write_/read_ on separate cache lines.
+add_executable(rung6_spsc_bench src/rung6_spsc_bench.cpp src/tsc.cpp)
+target_compile_definitions(rung6_spsc_bench PRIVATE SPSC_PAD=64 NDEBUG)
+target_compile_options(rung6_spsc_bench PRIVATE -O2 -march=native)
+target_link_libraries(rung6_spsc_bench PRIVATE pthread)
+
+# Nopad (deliberately wrong): write_/read_ share one line -> false sharing.
+add_executable(rung6_spsc_bench_nopad src/rung6_spsc_bench.cpp src/tsc.cpp)
+target_compile_definitions(rung6_spsc_bench_nopad PRIVATE SPSC_PAD=1 NDEBUG)
+target_compile_options(rung6_spsc_bench_nopad PRIVATE -O2 -march=native)
+target_link_libraries(rung6_spsc_bench_nopad PRIVATE pthread)
+
+# Correctness under ThreadSanitizer.
+add_executable(rung6_spsc_test src/rung6_spsc_test.cpp)
+target_compile_options(rung6_spsc_test PRIVATE -O1 -g -fsanitize=thread)
+target_link_options(rung6_spsc_test PRIVATE -fsanitize=thread)
+target_link_libraries(rung6_spsc_test PRIVATE pthread)
+
+# --- Rung 7: seqlock top-of-book publisher ----------------------------------
+add_executable(rung7_seqlock_bench src/rung7_seqlock_bench.cpp src/tsc.cpp)
+target_compile_definitions(rung7_seqlock_bench PRIVATE NDEBUG)
+target_compile_options(rung7_seqlock_bench PRIVATE -O2 -march=native)
+target_link_libraries(rung7_seqlock_bench PRIVATE pthread)
+
+# Correctness + race-freedom under ThreadSanitizer (Boehm payload must be clean).
+add_executable(rung7_seqlock_test src/rung7_seqlock_test.cpp)
+target_compile_options(rung7_seqlock_test PRIVATE -O1 -g -fsanitize=thread)
+target_link_options(rung7_seqlock_test PRIVATE -fsanitize=thread)
+target_link_libraries(rung7_seqlock_test PRIVATE pthread)
