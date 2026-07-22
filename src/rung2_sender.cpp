@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "mold.h"
+#include "parser.h"   // MAX_PAYLOAD (block-length sanity bound)
 
 constexpr int SBATCH = 64;   // packets per sendmmsg syscall
 
@@ -106,6 +107,11 @@ int main(int argc, char** argv)
     while (file.read(reinterpret_cast<char*>(len_buf), 2))
     {
         const uint16_t n = static_cast<uint16_t>(read_be<2>(len_buf));
+        // Sanity-bound n before copying: it's a 16-bit prefix from the file (up to
+        // 65535). Unchecked, file.read overflows msg[] and the later memcpy
+        // overflows pktbuf. A valid ITCH body is < MAX_PAYLOAD; anything larger is
+        // a corrupt/desynced capture — stop rather than smash memory.
+        if (n > MAX_PAYLOAD) { std::cerr << "oversize block len=" << n << ", stopping\n"; break; }
         if (!file.read(reinterpret_cast<char*>(msg), n)) break;
 
         const std::size_t block = 2 + n;

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <thread>
 #include <vector>
 
@@ -19,7 +20,12 @@ struct Snap {
     uint64_t pad[3];
     uint64_t checksum;
 };
-static inline uint64_t csum(const Snap& s) { return s.v ^ s.a ^ s.b ^ s.c ^ s.d; }
+// FNV-1a rather than XOR: XOR can miss a two-word tear whose deltas cancel.
+static inline uint64_t csum(const Snap& s) {
+    uint64_t h = 1469598103934665603ULL;
+    for (uint64_t x : {s.v, s.a, s.b, s.c, s.d}) h = (h ^ x) * 1099511628211ULL;
+    return h;
+}
 
 static SeqLock<Snap> g;
 
@@ -29,6 +35,13 @@ int main() {
     std::atomic<bool> stop{false};
     std::atomic<bool> torn{false};
     std::atomic<uint64_t> total_loads{0};
+
+    // Publish a checksum-valid snapshot BEFORE readers start. Otherwise a reader
+    // can observe the pristine pre-write state (seq=0, all-zero payload) — a
+    // perfectly consistent snapshot, but its zero checksum field != csum(0..0),
+    // which would read as a false tear. seq only increases, so once we've stored
+    // this, that pristine state is never observable again.
+    { Snap init{}; init.checksum = csum(init); g.store(init); }
 
     std::vector<std::thread> readers;
     for (int i = 0; i < kReaders; ++i)

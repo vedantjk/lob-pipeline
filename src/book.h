@@ -194,7 +194,11 @@ public:
         Order& o = orders_[it->second];
         assert(quantity <= o.shares && "over-execution");
 
-        if (quantity == o.shares) {
+        // >= (not ==) so an over-execution in an NDEBUG build removes the order
+        // instead of wrapping o.shares/l.quantity around uint32_t into a phantom
+        // resting size. On valid data quantity == o.shares here, so ToB is
+        // unchanged; the branch count is identical (zero hot-path cost).
+        if (quantity >= o.shares) {
             unlink_and_free(it);
         } else {
             o.shares -= quantity;

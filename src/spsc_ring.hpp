@@ -70,8 +70,13 @@ public:
     }
 
     // Observers (approximate; for tests/telemetry, not hot-path control flow).
+    // Load read_ BEFORE write_: in real time read_ <= write_ always, so a
+    // read-then-write snapshot can never make the unsigned subtraction underflow
+    // (loading write_ first could, if read_ races ahead between the two loads).
     std::size_t size_approx() const noexcept {
-        return write_.load(std::memory_order_acquire) - read_.load(std::memory_order_acquire);
+        const std::size_t r = read_.load(std::memory_order_acquire);
+        const std::size_t w = write_.load(std::memory_order_acquire);
+        return w - r;
     }
     static constexpr std::size_t capacity() noexcept { return Capacity; }
 };

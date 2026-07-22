@@ -149,6 +149,10 @@ struct Frontend
             uint16_t len = 0;
             while (const uint8_t* payload = mold_next_block(&cursor, end, &len))
             {
+                // Reject a block too short for its type before decoding: parser()
+                // reads type-fixed offsets and would otherwise over-read past the
+                // datagram (mold_next_block only guarantees `len` framed bytes).
+                if (!block_decodable(payload, len)) continue;
 #ifdef MEASURE
                 const uint64_t t0 = now_cycles();
 #endif

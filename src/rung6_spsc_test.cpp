@@ -39,7 +39,11 @@ int main() {
     std::thread producer([&] {
         uint32_t rng = 0x1234567u;
         uint64_t i = 0;
-        while (i < kN) {
+        // Gate on ok: if the consumer detects a FIFO violation and bails, it stops
+        // draining. Without this gate the producer would fill the ring and spin on
+        // try_push forever, and producer.join() below would hang — turning a
+        // *detected* bug into an infrastructure timeout instead of a clean exit 1.
+        while (i < kN && ok.load(std::memory_order_relaxed)) {
             if (ring.try_push(i)) ++i;
             else full_hits.fetch_add(1, std::memory_order_relaxed);
             if (xorshift(rng) & 3) { volatile int spin = 0; for (int j = 0; j < (int)(rng & 63); ++j) spin += j; }
@@ -51,9 +55,15 @@ int main() {
 
     std::fprintf(stderr, "full-boundary hits=%llu  empty-boundary hits=%llu\n",
                  (unsigned long long)full_hits.load(), (unsigned long long)empty_hits.load());
-    if (!ok.load())               { std::fprintf(stderr, "FAIL: ordering/exactness violated\n"); return 1; }
-    if (full_hits.load() == 0)    { std::fprintf(stderr, "WARN: never hit ring-full boundary\n"); }
-    if (empty_hits.load() == 0)   { std::fprintf(stderr, "WARN: never hit ring-empty boundary\n"); }
+    if (!ok.load()) { std::fprintf(stderr, "FAIL: ordering/exactness violated\n"); return 1; }
+    // Both boundaries must actually be exercised for this run to prove anything
+    // about the full/empty edges — don't claim coverage we didn't get.
+    if (full_hits.load() == 0 || empty_hits.load() == 0) {
+        std::fprintf(stderr, "FAIL: a ring boundary was never hit (full=%llu empty=%llu) — "
+                     "coverage not proven; retune pacing\n",
+                     (unsigned long long)full_hits.load(), (unsigned long long)empty_hits.load());
+        return 1;
+    }
     std::fprintf(stderr, "PASS: %llu items, exact FIFO, both boundaries exercised\n",
                  (unsigned long long)kN);
     return 0;

@@ -33,6 +33,11 @@ struct MicroPriceConsumer
     }
 };
 
+// Only AAPL adds enter the book; E/C/X/D/U are dispatched for EVERY symbol but
+// stay correct because ITCH order-reference numbers are globally unique per
+// trading day — a non-AAPL ref can never match a resting AAPL order, so those
+// lookups miss and no-op. (If this book were ever reused for a locate-partitioned
+// feed with per-symbol ref namespaces, these would need an m.locate==AAPL gate.)
 inline void apply(Book& book, const DecodedMsg& m)
 {
     switch (m.type)

@@ -50,6 +50,34 @@ uint64_t read_be(const uint8_t* p)
     return result;
 }
 
+// Minimum block length required to decode a message of this type without reading
+// past the framed payload. `parser()` reads type-fixed offsets, so callers MUST
+// gate on this before calling it — mold_next_block only guarantees `len` bytes are
+// in-bounds, not that `len` matches the type. Default (11) covers the always-read
+// header (type[0] + locate[1..2] + timestamp[5..10]).
+inline std::size_t parser_min_len(char type)
+{
+    switch (type)
+    {
+    case 'A':
+    case 'F': return ADD_PRICE_OFFSET + 4;      // 36
+    case 'E':
+    case 'C':
+    case 'X': return EXEC_SHARES_OFFSET + 4;    // 23
+    case 'D': return DELETE_REF_OFFSET + 8;     // 19
+    case 'U': return U_PRICE_OFFSET + 4;        // 35
+    default:  return TIMESTAMP_OFFSET + 6;      // 11 (header only)
+    }
+}
+
+// True iff a block of `len` bytes is long enough to decode. Reads payload[0] only
+// after confirming the header is present, so it is itself over-read-safe.
+inline bool block_decodable(const uint8_t* payload, std::size_t len)
+{
+    if (len < static_cast<std::size_t>(TIMESTAMP_OFFSET + 6)) return false;   // header
+    return len >= parser_min_len(static_cast<char>(payload[0]));
+}
+
 struct DecodedMsg
 {
     char type;

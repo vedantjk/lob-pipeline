@@ -74,17 +74,26 @@ int main(int argc, char** argv) {
         std::thread consumer([&] {
             if (!pin(cons_core)) std::fprintf(stderr, "warn: consumer pin failed\n");
             ready.store(true, std::memory_order_release);
-            uint64_t got = 0; Slot s;
+            uint64_t got = 0, skew = 0; Slot s;
             while (got < N) {
                 if (ring.try_pop(s)) {
                     const uint64_t now = now_cycles();
+                    ++got;
+                    popped.store(got, std::memory_order_release);   // signal producer
+                    // Guard the synced-TSC assumption instead of trusting it: a
+                    // negative delta means the two cores' TSCs are NOT in one
+                    // domain (misconfigured pair / multi-socket). Drop the sample
+                    // and count it — a single skewed value would otherwise land at
+                    // the top of the sorted array and poison p99/p99.9.
+                    if (now < s.tsc) { ++skew; continue; }
                     uint64_t d = now - s.tsc;
                     d = d > overhead ? d - overhead : 0;
                     lat.push_back(d);
-                    ++got;
-                    popped.store(got, std::memory_order_release);   // signal producer
                 }
             }
+            if (skew) std::fprintf(stderr,
+                "WARN: %llu TSC-skew samples dropped — cores not in one TSC domain?\n",
+                (unsigned long long)skew);
         });
 
         while (!ready.load(std::memory_order_acquire)) { }

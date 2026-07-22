@@ -27,7 +27,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    mlockall(MCL_CURRENT | MCL_FUTURE);
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0)
+        std::cerr << "warning: mlockall failed — run may take page-fault hits\n";
     if (!pin_to_core(6)) std::cerr << "warning: could not pin to core 6\n";
 
     std::ifstream file(input, std::ios::binary);
@@ -62,7 +63,12 @@ int main(int argc, char** argv)
     while (file.read(reinterpret_cast<char*>(len), 2))
     {
         const uint16_t n = static_cast<uint16_t>(read_be<2>(len));
+        // Bound the read to the buffer: n is a 16-bit prefix straight from the
+        // frame; a corrupt/desynced length > MAX_PAYLOAD would smash the stack.
+        // (The oracle guards this identically.) A valid ITCH body is always < 64B.
+        if (n > MAX_PAYLOAD) { std::cerr << "oversize block len=" << n << ", stopping\n"; break; }
         if (!file.read(reinterpret_cast<char*>(payload), n)) break;
+        if (!block_decodable(payload, n)) continue;   // too short for its type
 
 #ifdef MEASURE
         const uint64_t t0 = now_cycles();

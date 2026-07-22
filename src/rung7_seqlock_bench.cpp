@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <cstdlib>
 #include <cstring>
 #include <pthread.h>
@@ -33,10 +34,16 @@ struct ToBSnap {
     uint64_t version;
     uint64_t bid_px, bid_qty, ask_px, ask_qty;
     uint64_t pad[3];
-    uint64_t checksum;   // = version ^ bid_px ^ bid_qty ^ ask_px ^ ask_qty
+    uint64_t checksum;   // FNV-1a over the data words (see csum)
 };
+// FNV-1a, not XOR: XOR has a large null space (a two-word tear whose deltas
+// cancel passes undetected). A multiplicative mix has no such coincidental
+// cancellation for the field values we generate, so a torn snapshot is caught.
 static inline uint64_t csum(const ToBSnap& s) {
-    return s.version ^ s.bid_px ^ s.bid_qty ^ s.ask_px ^ s.ask_qty;
+    uint64_t h = 1469598103934665603ULL;
+    for (uint64_t x : {s.version, s.bid_px, s.bid_qty, s.ask_px, s.ask_qty})
+        h = (h ^ x) * 1099511628211ULL;
+    return h;
 }
 
 static bool pin(int core) {
@@ -66,11 +73,17 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "%-12s %-14s %-14s %-14s %-10s\n",
                  "writer_gap", "writes/s(M)", "loads/s(M)", "retries/s(M)", "retry_frac");
 
+    // Seed a checksum-valid snapshot so a reader can never catch the pristine
+    // pre-write state (zero payload with a zero checksum field != csum(0..0)) and
+    // mistake it for a tear. seq is monotonic, so one seed covers all iterations.
+    { ToBSnap init{}; init.checksum = csum(init); g_lock.store(init); }
+
     std::atomic<bool> torn{false};
     for (int gi = 0; gi < NG; ++gi) {
         const uint64_t gap = gaps[gi];
         std::atomic<bool> stop{false};
         std::atomic<uint64_t> n_writes{0}, n_loads{0}, n_retries{0};
+        uint64_t w_span = 0, r_span = 0;   // measured active cycles per thread
 
         std::thread writer([&] {
             if (!pin(wcore)) std::fprintf(stderr, "warn: writer pin failed\n");
@@ -78,14 +91,18 @@ int main(int argc, char** argv) {
             const uint64_t t0 = now_cycles();
             while (!stop.load(std::memory_order_relaxed)) {
                 s.version = ++v;
-                s.bid_px = 100000 + (v & 0xFF); s.bid_qty = 500 + (v & 0x3F);
-                s.ask_px = 100010 + (v & 0xFF); s.ask_qty = 300 + (v & 0x1F);
+                // Full-width, distinct, non-cancelling field values so a mid-struct
+                // tear can't coincidentally reproduce the checksum.
+                s.bid_px = 0x1000000000000000ULL + v * 0x9E3779B97F4A7C15ULL;
+                s.bid_qty = v * 3 + 0xABCDu;
+                s.ask_px = 0x2000000000000000ULL + v * 0x2545F4914F6CDD1DULL;
+                s.ask_qty = ~v;
                 s.checksum = csum(s);
                 g_lock.store(s);
                 n_writes.fetch_add(1, std::memory_order_relaxed);
                 for (uint64_t k = 0; k < gap; k = k + 1) { asm volatile("" ::: "memory"); }
             }
-            (void)t0;
+            w_span = now_cycles() - t0;
         });
 
         std::thread reader([&] {
@@ -99,16 +116,23 @@ int main(int argc, char** argv) {
                 retries += r;
                 ++loads;
             }
+            r_span = now_cycles() - t0;
             n_loads.store(loads); n_retries.store(retries);
             stop.store(true, std::memory_order_relaxed);
         });
 
         writer.join(); reader.join();
 
+        // Rates use each thread's OWN measured active span, not the nominal secs
+        // (the writer runs slightly past `secs` until it observes stop).
+        const double w_secs = w_span * ns_per_cycle / 1e9;
+        const double r_secs = r_span * ns_per_cycle / 1e9;
         const double wl = n_writes.load(), ld = n_loads.load(), rt = n_retries.load();
         std::fprintf(stderr, "%-12llu %-14.2f %-14.2f %-14.2f %-10.4f\n",
                      (unsigned long long)gap,
-                     wl / secs / 1e6, ld / secs / 1e6, rt / secs / 1e6,
+                     w_secs > 0 ? wl / w_secs / 1e6 : 0.0,
+                     r_secs > 0 ? ld / r_secs / 1e6 : 0.0,
+                     r_secs > 0 ? rt / r_secs / 1e6 : 0.0,
                      ld > 0 ? rt / ld : 0.0);
     }
 

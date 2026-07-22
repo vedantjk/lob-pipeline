@@ -302,15 +302,19 @@ ring. (First cut got this wrong — a free-running producer filled the 16 K-slot
 and I measured ~600 µs of queueing; the lockstep rewrite is the fix.) TSC is
 invariant + synced across cores on one socket, so a cross-core cycle delta is
 meaningful. Consumer hot-spins → we measure handoff, never a scheduler wakeup.
-2 M samples each:
+2 M samples each; p50/p99 are medians over 4 runs (stable to a bin):
 
-| placement            | p50 | p99 | p99.9 | streaming throughput |
-|----------------------|-----|-----|-------|----------------------|
-| HT-sibling (6,14)    | 40 ns | 60 ns | 70 ns | ~700 M msg/s |
-| distinct core (6,7)  | 70 ns | 80 ns | 100 ns | ~160 M msg/s |
+| placement            | p50 | p99 | streaming throughput |
+|----------------------|-----|-----|----------------------|
+| HT-sibling (6,14)    | 40 ns | ~65 ns | ~700 M msg/s |
+| distinct core (6,7)  | ~80 ns | ~100 ns | ~160 M msg/s |
+
+*(p99.9 is not reported: on this desktop — isolcpus, but not a fully quiesced
+RT kernel — the 1-in-10⁴ tail swings run-to-run from ~70 ns to ~500 ns, so a single
+figure would be cherry-picked. p50/p99 are stable.)*
 
 HT siblings share L1/L2, so the payload never leaves the physical core — ~40 ns.
-Two distinct cores pay the on-CCD coherence hop — ~30 ns more per handoff. (The
+Two distinct cores pay the on-CCD coherence hop — ~40 ns more per handoff. (The
 higher HT-sibling *throughput* is misleading for real use: siblings also contend
 for the core's execution units, which is exactly why you'd **not** co-schedule a
 hot producer/consumer pair there in production. Latency favors it; that's the trap.)
@@ -325,9 +329,10 @@ the common path. No ABA here — SPSC has monotonic single-writer indices and no
 reclamation, so the problem doesn't arise (unlike a Treiber stack or MPSC).
 
 **Correctness.** `rung6_spsc_test` under ThreadSanitizer: 20 M items, exact FIFO,
-both ring-full (193 K hits) and ring-empty (14 K hits) boundaries exercised —
+with both ring-full and ring-empty boundaries exercised (the test now *fails* if
+either boundary count is zero, rather than claiming coverage it didn't get) —
 **TSan-clean** (the ring uses only acquire/release loads/stores, which TSan fully
-models).
+models; run under `setarch -R` to disable ASLR, which the sanitizer requires here).
 
 ### 8.2 False sharing — before / after
 
@@ -336,11 +341,13 @@ Same distinct-core placement, `pad=64` (each index its own line) vs `pad=1`
 
 | build  | handoff p50 | cache-misses | L1-dcache miss | `perf c2c` Local HITM |
 |--------|-------------|--------------|----------------|-----------------------|
-| padded | 70 ns  | 19.2 M | 24.0 M | 1 / 909 loads |
-| nopad  | 110 ns | 26.3 M | 33.0 M | 20 / 992 loads |
+| padded | ~80 ns  | 19.2 M | 24.0 M | 1 / 909 loads |
+| nopad  | ~110 ns | 26.3 M | 33.0 M | 20 / 992 loads |
 
-+57 % p50 latency, +37 % cache-misses. `perf c2c` (the tool built for exactly this)
-fingers a single cache line carrying **80 % of all HITM traffic** — 130 loads +
+The hardware counters are the robust signal (the p50 latency delta is directionally
+consistent but noisier): nopad shows **+37 % cache-misses** and **+38 % L1 misses**.
+`perf c2c` (the tool built for exactly this) fingers a single cache line carrying
+**80 % of all HITM traffic** — 130 loads +
 72 stores hammered from both cores. Padding removes it: HITM drops 20 → 1.
 
 ### 8.3 Seqlock — top-of-book publisher
@@ -380,14 +387,14 @@ writer's spin-gap knob throttles publish rate):
 
 | writer gap | writes/s | loads/s | retries/s | retry frac |
 |-----------:|---------:|--------:|----------:|-----------:|
-| 0 (wide open) | 17.0 M | 10.1 M | 18.2 M | 1.80 |
-| 50   | 15.3 M | 11.8 M | 18.2 M | 1.54 |
-| 200  | 8.8 M  | 25.1 M | 2.9 M  | 0.11 |
-| 1000 | 3.7 M  | 37.5 M | 0.16 M | 0.004 |
-| 5000 | 1.0 M  | 43.2 M | 0.07 M | 0.0015 |
+| 0 (wide open) | 24.7 M | 10.7 M | 30.9 M | 2.90 |
+| 50   | 22.0 M | 12.7 M | 21.2 M | 1.67 |
+| 200  | 11.0 M | 26.3 M | 3.5 M  | 0.13 |
+| 1000 | 4.2 M  | 35.5 M | 1.35 M | 0.038 |
+| 5000 | 1.0 M  | 40.2 M | 0.34 M | 0.0085 |
 
-When the writer outruns the reader (~17 M publishes/s) the reader averages ~1.8
-retries per successful load — but it **never livelocks**: it still lands 10 M
+When the writer outruns the reader (~25 M publishes/s) the reader averages ~2.9
+retries per successful load — but it **never livelocks**: it still lands ~11 M
 consistent snapshots/s. Throttle the writer and retries collapse toward zero. The
 tradeoff is explicit and bounded.
 
