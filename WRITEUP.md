@@ -319,6 +319,46 @@ higher HT-sibling *throughput* is misleading for real use: siblings also contend
 for the core's execution units, which is exactly why you'd **not** co-schedule a
 hot producer/consumer pair there in production. Latency favors it; that's the trap.)
 
+**The full ladder (EC2, dual-socket EPYC).** The desktop has only those two tiers
+— one CCD, one socket. Re-running the same bench (`scripts/topology_sweep.sh`) on
+a 192-logical-CPU dual-socket EPYC Milan (c6a.metal-class, NPS>1 so each socket
+exposes multiple NUMA nodes; untuned kernel, so p50/p99 medians over 8 reps only,
+same p99.9 caveat as above; the bench's TSC-skew guard reported 0 dropped samples
+at every tier, including cross-socket):
+
+| tier | coherence path | p50 | p99 | streaming throughput |
+|---|---|---|---|---|
+| HT-sibling | shared L1/L2 | 40 ns | 50 ns | ~264 M msg/s |
+| same-L3 | shared CCX L3 | 130 ns | 140 ns | ~26 M msg/s |
+| cross-L3 | between CCDs, on-package fabric | 770 ns | 990 ns | ~12 M msg/s |
+| cross-NUMA (same socket) | across NPS domains | ~810 ns (bimodal 540–830) | ~940 ns | ~10 M msg/s |
+| cross-socket | inter-socket link | 950 ns | 970 ns | ~6.5 M msg/s |
+
+Three observations:
+
+- **The ladder is real and steep: ~24× from sibling to cross-socket.** And the
+  40 ns HT-sibling handoff is identical on a Zen 5 desktop and a Zen 3 server —
+  the shared-core path is essentially generation-invariant; everything above it
+  is fabric, and the fabric is what you pay for. Note the big cliff is *leaving
+  the CCX* (130 → 770 ns), not leaving the socket (810 → 950 ns): on chiplet
+  CPUs, "one socket" is not one latency domain, and cross-CCD costs nearly as
+  much as cross-socket.
+- **Cross-NUMA (same socket) is bimodal** (p50 alternates ~540/~810 across
+  runs). Unattributed; plausibly which fabric quadrant the pair lands relative
+  to, but I did not pin that down.
+- **The false-sharing result inverts in the middle of the ladder.** The `pad=1`
+  layout (both indices on one line — the "deliberately wrong" build from the
+  desktop experiment) is *faster* than padded at cross-L3 (630 vs 770 ns) and
+  cross-NUMA (600 vs 810 ns), and ~3–4× the streaming throughput at every
+  off-CCX tier — yet slower again at cross-socket (1170 vs 950 ns) and on-core.
+  Hypothesis, not attribution: in this ping-pong workload the two indices are
+  updated in strict alternation, so co-locating them means one expensive line
+  transfer can carry both updates — transfer *consolidation* beats the
+  invalidation ping-pong precisely where transfers are dearest. The desktop
+  conclusion ("padding wins") holds within a CCX; across the fabric the same
+  layout question has a different answer. Measuring before believing the rule
+  of thumb is the whole point of this project.
+
 **Memory ordering is the point.** Publish is `write_.store(release)`; observe is
 `write_.load(acquire)`. On x86-TSO those are plain `mov`s — a compiler fence only,
 zero hardware cost. `seq_cst` would force a store-load barrier (`mfence`/`lock`) on
@@ -404,8 +444,10 @@ MPSC (many strategy threads → one gateway) is out — SPSC + seqlock is the co
 signal and MPSC adds reclamation concerns these two don't have. The batch-size
 latency/throughput sweep isn't cleanly isolable in this harness (the consumer
 updates `read_` per-pop regardless of batch), so I don't claim a curve for it.
-Cross-NUMA handoff is unmeasurable on this single-CCD part — the natural next data
-point on a 2-socket box.
+Cross-CCD/cross-NUMA/cross-socket handoff — unmeasurable on the single-CCD dev
+box — was measured on a 2-socket EPYC (table above). Still open: attributing the
+cross-NUMA bimodality, and a proper explanation (not just the hypothesis) for the
+pad-inversion in the middle tiers.
 
 ---
 

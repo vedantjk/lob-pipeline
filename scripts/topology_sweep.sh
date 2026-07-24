@@ -3,10 +3,11 @@
 # cache/NUMA topology tier the host actually has, and emit one tidy CSV.
 #
 # Tiers (auto-detected from `lscpu -p`; missing tiers are skipped with a note):
-#   ht-sibling : two hardware threads of one physical core
-#   same-l3    : two physical cores sharing an L3 (same CCX/CCD on AMD)
-#   cross-l3   : two cores, different L3, same NUMA node (cross-CCD on EPYC)
-#   cross-numa : two cores on different NUMA nodes (cross-socket on 2S boxes)
+#   ht-sibling   : two hardware threads of one physical core
+#   same-l3      : two physical cores sharing an L3 (same CCX/CCD on AMD)
+#   cross-l3     : two cores, different L3, same NUMA node (cross-CCD on EPYC)
+#   cross-numa   : two cores on different NUMA nodes but the SAME socket (NPS>1)
+#   cross-socket : two cores on different sockets (packages)
 #
 # Usage:
 #   scripts/topology_sweep.sh                 # auto-pick pairs, 4 reps each
@@ -35,16 +36,20 @@ if [[ ! -x "$BENCH" || ! -x "$BENCH_NOPAD" ]]; then
 fi
 
 # ------------------------------------------------------ topology detection ---
-# lscpu -p=CPU,CORE,SOCKET,NODE,CACHE lines look like: 0,0,0,0,0:0:0:0
-# CACHE is l1d:l1i:l2:l3 ids; we key CCX/CCD grouping off the l3 id.
+# `lscpu -p` (portable default) emits: CPU,Core,Socket,Node,,L1d,L1i,L2,L3
+# The custom `-p=LIST` form is NOT honored by all util-linux builds (bit us on
+# EC2), so we parse the default layout and take the LAST field as the L3 id
+# (the CCX/CCD key).
 declare -a CPUS CORES SOCKETS NODES L3S
-while IFS=, read -r cpu core socket node cache; do
-    [[ "$cpu" == \#* ]] && continue
-    l3="${cache##*:}"
+while IFS= read -r line; do
+    [[ "$line" == \#* || -z "$line" ]] && continue
+    IFS=, read -ra f <<<"$line"
+    cpu="${f[0]}"; core="${f[1]}"; socket="${f[2]}"; node="${f[3]}"
+    l3="${f[$(( ${#f[@]} - 1 ))]}"          # last column is the L3 id
     [[ -z "$l3" ]] && l3="$socket"          # no L3 info reported: fall back
     [[ -z "$node" ]] && node="$socket"
     CPUS+=("$cpu"); CORES+=("$core"); SOCKETS+=("$socket"); NODES+=("$node"); L3S+=("$l3")
-done < <(lscpu -p=CPU,CORE,SOCKET,NODE,CACHE)
+done < <(lscpu -p)
 
 NCPU=${#CPUS[@]}
 echo "[topo] $NCPU logical CPUs"
@@ -60,18 +65,19 @@ pick_pair() { # $1 = predicate name
     done
     return 1
 }
-is_sibling()   { [[ "${CORES[$1]}" == "${CORES[$2]}" && "${SOCKETS[$1]}" == "${SOCKETS[$2]}" ]]; }
-is_same_l3()   { [[ "${CORES[$1]}" != "${CORES[$2]}" || "${SOCKETS[$1]}" != "${SOCKETS[$2]}" ]] \
-              && [[ "${L3S[$1]}" == "${L3S[$2]}" && "${NODES[$1]}" == "${NODES[$2]}" ]]; }
-is_cross_l3()  { [[ "${L3S[$1]}" != "${L3S[$2]}" && "${NODES[$1]}" == "${NODES[$2]}" ]]; }
-is_cross_numa(){ [[ "${NODES[$1]}" != "${NODES[$2]}" ]]; }
+is_sibling()     { [[ "${CORES[$1]}" == "${CORES[$2]}" && "${SOCKETS[$1]}" == "${SOCKETS[$2]}" ]]; }
+is_same_l3()     { [[ "${CORES[$1]}" != "${CORES[$2]}" || "${SOCKETS[$1]}" != "${SOCKETS[$2]}" ]] \
+                && [[ "${L3S[$1]}" == "${L3S[$2]}" && "${NODES[$1]}" == "${NODES[$2]}" ]]; }
+is_cross_l3()    { [[ "${L3S[$1]}" != "${L3S[$2]}" && "${NODES[$1]}" == "${NODES[$2]}" ]]; }
+is_cross_numa()  { [[ "${NODES[$1]}" != "${NODES[$2]}" && "${SOCKETS[$1]}" == "${SOCKETS[$2]}" ]]; }
+is_cross_socket(){ [[ "${SOCKETS[$1]}" != "${SOCKETS[$2]}" ]]; }
 
 if [[ -n "${PAIRS:-}" ]]; then
     echo "[topo] using manual PAIRS: $PAIRS"
     TIERS=($PAIRS)   # entries: tier:prod:cons
 else
     TIERS=()
-    for t in ht-sibling:is_sibling same-l3:is_same_l3 cross-l3:is_cross_l3 cross-numa:is_cross_numa; do
+    for t in ht-sibling:is_sibling same-l3:is_same_l3 cross-l3:is_cross_l3 cross-numa:is_cross_numa cross-socket:is_cross_socket; do
         name="${t%%:*}"; pred="${t##*:}"
         if pair=$(pick_pair "$pred"); then
             TIERS+=("$name:$pair")

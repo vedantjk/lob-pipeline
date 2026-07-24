@@ -57,9 +57,13 @@ Skip this on a shared/borrowed box — the p50/p99 story doesn't need it.
 
 ## 4. Reading the results
 
-- **Expected ordering:** ht-sibling < same-l3 < cross-l3 < cross-numa (p50).
-  Each step adds a longer coherence path: shared L1/L2 → shared L3 → over the
-  on-package fabric between CCDs → over the inter-socket link.
+- **Expected ordering:** ht-sibling < same-l3 < cross-l3 < cross-numa <
+  cross-socket (p50). Each step is a longer coherence path: shared L1/L2 →
+  shared L3 → on-package fabric between CCDs → across NPS domains → over the
+  inter-socket link. (On NPS>1 boxes cross-numa means "different NUMA node,
+  same socket"; cross-socket is its own tier. Done: 2026-07-23 run on a
+  dual-socket Milan measured 40 / 130 / 770 / ~810 / 950 ns p50 — see
+  WRITEUP §8.1.)
 - **Use medians across reps for p50/p99.** Ignore single-run p99.9 outliers
   unless you did §3.
 - **`skew_dropped` must be 0.** The bench measures with rdtsc deltas across
