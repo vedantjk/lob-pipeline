@@ -334,6 +334,8 @@ at every tier, including cross-socket):
 | cross-NUMA (same socket) | across NPS domains | ~810 ns (bimodal 540–830) | ~940 ns | ~10 M msg/s |
 | cross-socket | inter-socket link | 950 ns | 970 ns | ~6.5 M msg/s |
 
+![SPSC handoff p50 by topology tier, padded vs nopad](assets/topology_chart.png)
+
 Three observations:
 
 - **The ladder is real and steep: ~24× from sibling to cross-socket.** And the
