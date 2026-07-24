@@ -321,7 +321,7 @@ hot producer/consumer pair there in production. Latency favors it; that's the tr
 
 **The full ladder (EC2, dual-socket EPYC).** The desktop has only those two tiers
 — one CCD, one socket. Re-running the same bench (`scripts/topology_sweep.sh`) on
-a 192-logical-CPU dual-socket EPYC Milan (c6a.metal-class, NPS>1 so each socket
+a `c6a.metal` — 192 logical CPUs, dual-socket EPYC Milan, NPS>1 so each socket
 exposes multiple NUMA nodes; untuned kernel, so p50/p99 medians over 8 reps only,
 same p99.9 caveat as above; the bench's TSC-skew guard reported 0 dropped samples
 at every tier, including cross-socket):
